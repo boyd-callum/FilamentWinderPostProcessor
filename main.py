@@ -1,11 +1,14 @@
 from gcode_writer import GCodeWriterConfig, GCodeWriter
-from axis_processor import AxisProcessorConfig, AxisProcessor
+from axis_processor import AxisLimit, AxisProcessorConfig, AxisProcessor
 
 
 axis_processor_config = AxisProcessorConfig(
     x_clearance_mm=10.0,
-    default_feedrate_mm_min=100.0,
-    default_tension_n=20.0,
+    default_feedrate_mm_min=500.0,
+    spindle_limit=AxisLimit("A", -1e9, 1e9),
+    z_limit=AxisLimit("Z", 0.0, 2500.0),
+    x_limit=AxisLimit("X", 0.0, 300.0),
+    head_limit=AxisLimit("B", -180.0, 180.0),
 )
 
 gcode_config  = GCodeWriterConfig(

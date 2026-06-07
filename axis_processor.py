@@ -1,9 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+
+@dataclass
+class AxisLimit:
+    name: str
+    min_position: float
+    max_position: float
 
 
 @dataclass
@@ -13,6 +19,19 @@ class AxisProcessorConfig:
     z_clearance_mm: float = 50.0
     default_feedrate_mm_min: float = 500.0
     default_tension_n: float = 20.0
+
+    spindle_limit: AxisLimit = field(
+        default_factory=lambda: AxisLimit("A", -1e9, 1e9)
+    )
+    z_limit: AxisLimit = field(
+        default_factory=lambda: AxisLimit("Z", 0.0, 2500.0)
+    )
+    x_limit: AxisLimit = field(
+        default_factory=lambda: AxisLimit("X", 0.0, 300.0)
+    )
+    head_limit: AxisLimit = field(
+        default_factory=lambda: AxisLimit("B", -180.0, 180.0)
+    )
 
     x_column: str = "x_mm"
     y_column: str = "y_mm"
@@ -73,6 +92,7 @@ class AxisProcessor:
             }
         )
 
+        self._validate_axis_limits(axis_table)
 
         axis_table.to_csv(output_axis_csv, index=False)
         
@@ -168,3 +188,42 @@ class AxisProcessor:
         )
 
         return head_deg
+    
+    def _validate_axis_limits(
+            self,
+            axis_table: pd.DataFrame
+    ) -> None:
+        
+        limits = [
+            (self.config.spindle_limit, self.config.output_spindle_column),
+            (self.config.z_limit, self.config.output_z_column),
+            (self.config.x_limit, self.config.output_x_column),
+            (self.config.head_limit, self.config.output_head_column),
+        ]
+
+        errors = []
+
+
+        for axis_limit, column in limits:
+
+            values = axis_table[column]
+
+            below_limit = values < axis_limit.min_position
+            above_limit = values > axis_limit.max_position
+            out_of_bounds = below_limit | above_limit
+
+            if out_of_bounds.any():
+                bad_rows = axis_table.index[out_of_bounds].tolist()
+                first_bad_row = bad_rows[0]
+                first_bad_value = values.loc[first_bad_row]
+
+                errors.append(
+                    f"{axis_limit.name} axis exceeds travel limits. "
+                    f"Allowed range: [{axis_limit.min_position}, "
+                    f"{axis_limit.max_position}], "
+                    f"first bad row: {first_bad_row}, "
+                    f"value: {first_bad_value:.3f}"
+                )
+
+        if errors:
+            raise ValueError("\n".join(errors))
