@@ -1,6 +1,12 @@
 from gcode_writer import GCodeWriterConfig, GCodeWriter
-from axis_processor import AxisLimit, AxisProcessorConfig, AxisProcessor
+from axis_processor import AxisLimit, AxisProcessorConfig, AxisProcessor, TensionConfig
 
+
+tension_config = TensionConfig(
+    mode="linear_by_layer",
+    start_tension_n=25.0,
+    end_tension_n=20.0
+)
 
 axis_processor_config = AxisProcessorConfig(
     x_clearance_mm=10.0,
@@ -9,6 +15,7 @@ axis_processor_config = AxisProcessorConfig(
     z_limit=AxisLimit("Z", 0.0, 2500.0),
     x_limit=AxisLimit("X", 0.0, 300.0),
     head_limit=AxisLimit("B", -180.0, 180.0),
+    tension_config=tension_config
 )
 
 gcode_config  = GCodeWriterConfig(

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -13,12 +14,28 @@ class AxisLimit:
 
 
 @dataclass
+class TensionConfig:
+    mode: Literal[
+        "constant",
+        "linear_by_layer"
+    ] = "constant"
+
+    # used when mode == constant
+    constant_tension_n: float = 20.0
+
+    # used when mode == linear
+    start_tension_n: float = 25.0
+    end_tension_n: float = 15.0
+
+
+@dataclass
 class AxisProcessorConfig:
 
     x_clearance_mm: float = 10.0
     z_clearance_mm: float = 50.0
     default_feedrate_mm_min: float = 500.0
-    default_tension_n: float = 20.0
+    
+    tension_config: TensionConfig = field(default_factory=TensionConfig)
 
     spindle_limit: AxisLimit = field(
         default_factory=lambda: AxisLimit("A", -1e9, 1e9)
@@ -36,6 +53,7 @@ class AxisProcessorConfig:
     x_column: str = "x_mm"
     y_column: str = "y_mm"
     z_column: str = "z_mm"
+    layer_column: str = "layer"
 
     output_spindle_column: str = "A_deg"
     output_z_column: str = "Z_mm"
@@ -88,7 +106,7 @@ class AxisProcessor:
                 self.config.output_x_column: x_axis_mm,
                 self.config.output_head_column: head_deg,
                 self.config.output_feedrate_column: self.config.default_feedrate_mm_min,
-                self.config.output_tension_column: self.config.default_tension_n,
+                self.config.output_tension_column: self._calculate_tension_profile(path_table),
             }
         )
 
@@ -189,6 +207,8 @@ class AxisProcessor:
 
         return head_deg
     
+
+
     def _validate_axis_limits(
             self,
             axis_table: pd.DataFrame
@@ -227,3 +247,81 @@ class AxisProcessor:
 
         if errors:
             raise ValueError("\n".join(errors))
+
+
+
+
+    def _calculate_tension_profile(
+            self,
+            path_table: pd.DataFrame
+    ) -> np.ndarray:
+        """
+        generates tension value for each path point
+
+        supports:
+            constant:
+                same tension for each point
+            
+            linear:
+                linearly varies tension throughout layers
+        """
+
+        tension_config = self.config.tension_config
+        number_points = len(path_table)
+
+        if tension_config.mode == "constant":
+            return np.full(
+                number_points,
+                tension_config.constant_tension_n,
+                dtype=float
+            )
+
+        if self.config.layer_column not in path_table.columns:
+            raise ValueError(
+                f"Tension mode '{tension_config.mode}' requires a "
+                f"'{self.config.layer_column}' column in the input CSV."
+            )
+        
+        layers = path_table[self.config.layer_column].to_numpy(dtype=int)
+
+        if tension_config.mode == "linear_by_layer":
+            return self._calculate_linear_layer_tension(layers)
+
+        raise ValueError(f"Unsupported tension mode: {tension_config.mode}")
+    
+
+
+
+    def _calculate_linear_layer_tension(
+            self,
+            layers: np.ndarray
+    ) -> np.ndarray:
+        """
+        linearly interpolate tension based on layer num
+        """
+
+        tension_config = self.config.tension_config
+
+        start_tension = tension_config.start_tension_n
+        end_tension = tension_config.end_tension_n
+
+        first_layer = int(np.min(layers))
+        last_layer = int(np.max(layers))
+
+        # if only one layer, just use start tension
+        if first_layer == last_layer:
+            return np.full(
+                len(layers),
+                start_tension,
+                dtype=float
+            )
+        
+        # convert each layer num to a fraction between 0 and 1
+        layer_fraction = (layers - first_layer) / (last_layer - first_layer)
+
+        # map that fraction onto the tension range
+        tension = (
+            start_tension + layer_fraction*(end_tension - start_tension)
+        )
+
+        return tension
